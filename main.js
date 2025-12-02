@@ -259,15 +259,35 @@ async function fetchVerificationCsv() {
     return csv
 }
 
+// https://www.stefanjudis.com/snippets/how-trigger-file-downloads-with-javascript/
+function downloadAsFile(data, filename, linkText) {
+    const file = new File([data], filename)
+
+    const link = document.createElement("a")
+    link.download = filename
+    link.href = URL.createObjectURL(file)
+
+    const container = document.createElement("div")
+    container.appendChild(link)
+    document.body.appendChild(container)
+
+    link.innerText = linkText
+}
+
 await startTask()
-await gatherWasherData(100)
+await gatherWasherData(10)
 await endTask()
 
-csvGeneratedArea.value = washerDataToCsv(nodeData)
-csvFetchedArea.value = await fetchVerificationCsv()
+const generatedCsv = washerDataToCsv(nodeData)
+const verificationCsv = await fetchVerificationCsv()
+csvGeneratedArea.value = generatedCsv
+csvFetchedArea.value = verificationCsv
 
-if (csvGeneratedArea.value === csvFetchedArea.value) {
+if (generatedCsv === verificationCsv) {
     csvMatchText.textContent = "CSV data matches"
 } else {
     csvMatchText.textContent = "CSV data does not match"
 }
+
+downloadAsFile(generatedCsv, "readingdata_generated.csv", "Download generated CSV")
+downloadAsFile(verificationCsv, "readingdata_fetched.csv", "Download fetched CSV")
