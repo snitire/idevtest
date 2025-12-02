@@ -68,11 +68,14 @@ async function sleep(ms) {
 }
 
 async function postToTask(body) {
+    const earlyRenewTime = 1000*60
+    const renewRetryTimeout = 1000
+
     // renews token a minute early just to be sure since there is no real renewal limit
     // this might spam the server with requests if the fetch fails so some sort of timeout is nice
-    while ((Date.now() + 1000*60) >= token.expires) {
+    while ((Date.now() + earlyRenewTime) >= token.expires) {
         token = await fetchToken()
-        await sleep(1000)
+        await sleep(renewRetryTimeout)
     }
 
     return fetch(TASK_URL, {
