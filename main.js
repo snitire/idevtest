@@ -67,7 +67,7 @@ async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-async function postToTask(body) {
+async function postTo(endpoint, body) {
     const earlyRenewTime = 1000*60
     const renewRetryTimeout = 1000
 
@@ -78,7 +78,7 @@ async function postToTask(body) {
         await sleep(renewRetryTimeout)
     }
 
-    return fetch(TASK_URL, {
+    return fetch(endpoint, {
         method: "POST",
         headers: {
             "Authorization": "Bearer " + token.value
@@ -88,7 +88,7 @@ async function postToTask(body) {
 }
 
 async function startTask() {
-    const response = await postToTask("command=begin")
+    const response = await postTo(TASK_URL,"command=begin")
 
     if (!response.ok) {
         console.error("Failed to start task: " + response.status)
@@ -98,7 +98,7 @@ async function startTask() {
 }
 
 async function endTask() {
-    const response = await postToTask("command=end")
+    const response = await postTo(TASK_URL, "command=end")
 
     if (!response.ok) {
         console.error("Failed to end task: " + response.status)
