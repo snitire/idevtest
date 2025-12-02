@@ -6,5 +6,25 @@
 </head>
 <body>
     <script type="module" src="main.js"></script>
+    <div>
+        <label for="csvGenerated">Generated CSV from gathered data</label>
+    </div>
+    <div>
+        <textarea id="csvGenerated" rows="10" cols="50"></textarea>
+    </div>
+
+    <div>
+        <label for="csvFetched">CSV fetched from server</label>
+    </div>
+    <div>
+        <textarea id="csvFetched" rows="10" cols="50"></textarea>
+    </div>
+
+    <div>
+        Status: <span id="status">initializing</span>
+    </div>
+    <div>
+        <span id="csvMatch"></span>
+    </div>
 </body>
 </html>

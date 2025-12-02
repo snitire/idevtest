@@ -28,6 +28,14 @@ const TOKEN_BLANK = {
 let token = TOKEN_BLANK
 let isTaskStarted = false
 
+const nodeData = []
+const nodeReceivedCount = {}
+
+const statusText = document.getElementById("status")
+const csvMatchText = document.getElementById("csvMatch")
+const csvGeneratedArea = document.getElementById("csvGenerated")
+const csvFetchedArea = document.getElementById("csvFetched")
+
 async function fetchToken() {
     try {
         // https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch
@@ -53,8 +61,8 @@ async function fetchToken() {
             // https://stackoverflow.com/questions/32252565/javascript-parse-utc-date
             result.created = Date.parse(tokenXml.querySelector("Created").textContent + "Z")
             result.expires = Date.parse(tokenXml.querySelector("Expires").textContent + "Z")
-            console.log("Successfully fetched token: ")
-            console.log(result)
+            console.debug("Successfully fetched token: ")
+            console.debug(result)
             return result
         }
     } catch (e) {
@@ -79,6 +87,8 @@ async function postTo(endpoint, body) {
         await sleep(renewRetryTimeout)
     }
 
+    console.debug(`POST ${endpoint} ${body}`)
+
     return fetch(endpoint, {
         method: "POST",
         headers: {
@@ -96,6 +106,7 @@ async function startTask() {
     } else {
         console.log("Successfully started task: " + response.status)
         isTaskStarted = true
+        statusText.innerText = "task started"
     }
 }
 
@@ -109,13 +120,13 @@ async function endTask() {
     } else {
         console.log("Successfully ended task: " + response.status)
         isTaskStarted = false
+        statusText.innerText = "task finished"
     }
 }
 
 async function getTaskValue(reqTime) {
     if (!isTaskStarted) {return}
 
-    console.log("command=getvalue,request=" + reqTime)
     const response = await postTo(TASK_URL, "command=getvalue,request=" + reqTime)
 
     return await response.json()
@@ -124,6 +135,7 @@ async function getTaskValue(reqTime) {
 function isWasherDataValid(data) {
     // has top level data key
     if (!("data" in data)) {
+        console.debug("Missing data key")
         return false
     }
 
@@ -131,30 +143,131 @@ function isWasherDataValid(data) {
 
     // has the node, type, name, temp keys
     const keys = ["node","type","name","temp"]
-    for (const key in keys) {
+    for (const key of keys) {
         if (!(key in data)) {
+            console.debug("Missing key: " + key)
             return false
         }
     }
 
     // type should not be "unknown"
     if (data["type"] === "unknown") {
+        console.debug("Type is unknown")
         return false
     }
 
     // temp should be between [0;200)
     if (data["temp"] < 0 || data["temp"] >= 200) {
+        console.debug("Temp is invalid")
         return false
     }
 
     return true
 }
 
+async function gatherWasherData(uptoCount = 100) {
+    if (!isTaskStarted) {return}
+    let keepGathering = true
+    const readingTimeout = 1000
+
+    while (keepGathering) {
+        const now = new Date()
+        const hours = now.getUTCHours() >= 10 ? now.getUTCHours() : "0" + now.getUTCHours()
+        const minutes = now.getUTCMinutes() >= 10 ? now.getUTCMinutes() : "0" + now.getUTCMinutes()
+        const seconds = now.getUTCSeconds() >= 10 ? now.getUTCSeconds() : "0" + now.getUTCSeconds()
+        const reqTime = hours + ":" + minutes + ":" + seconds
+
+        const reqData = await getTaskValue(reqTime)
+        // save the request time for later
+        reqData["time"] = reqTime
+
+        console.debug(reqData)
+
+        // verify that the data fits the listed criteria
+        if (isWasherDataValid(reqData)) {
+
+            // save the data for the node
+            const node = reqData["data"]["node"]
+            nodeData.push(reqData)
+
+            // keep track of the received readings of each node
+            if (node in nodeReceivedCount) {
+                nodeReceivedCount[node]++
+                if (nodeReceivedCount[node] >= uptoCount) {
+                    console.log("Got " + uptoCount + " readings of node " + node + ", stopping")
+                    keepGathering = false
+                }
+            } else {
+                nodeReceivedCount[node] = 1
+            }
+
+
+        } else {
+            console.debug("Got invalid data")
+        }
+
+        await sleep(readingTimeout)
+    }
+
+    console.debug(nodeData)
+}
+
+function washerDataToCsv(data) {
+    let csv = "Time,Node,Type,Temperature°C,Δ\r\n"
+    const lastReadingTemps = {}
+
+    for (const reading of data) {
+        // https://www.calculatorsoup.com/calculators/conversions/fahrenheit-to-celsius.php
+        const time = reading["time"]
+        const node = reading["data"]["node"]
+        const type = reading["data"]["type"]
+        const tempCelsius = Math.round(((reading["data"]["temp"] - 32) / 1.8) * 100) / 100
+
+        csv += `${time},${node},${type},${tempCelsius},`
+
+        // only include delta if there is a previous reading of the same node
+        if (node in lastReadingTemps) {
+            // rounded to 2 decimal places
+            const delta = Math.round((tempCelsius - lastReadingTemps[node]) * 100) / 100
+            csv += `${delta}`
+        }
+
+        // DOS carriage return
+        csv += `\r\n`
+        lastReadingTemps[node] = tempCelsius
+    }
+
+    console.debug("Generated CSV:")
+    console.debug(csv)
+
+    return csv
+}
+
+async function fetchVerificationCsv() {
+    const response = await fetch(CSV_URL, {
+        method: "GET",
+        headers: {
+            "Authorization": "Bearer " + token.value
+        }
+    })
+
+    const csv = await response.text()
+
+    console.debug("Received verification CSV:")
+    console.debug(csv)
+
+    return csv
+}
+
 await startTask()
-const now = new Date()
-const hours = now.getUTCHours() >= 10 ? now.getUTCHours() : "0" + now.getUTCHours()
-const minutes = now.getUTCMinutes() >= 10 ? now.getUTCMinutes() : "0" + now.getUTCMinutes()
-const seconds = now.getUTCSeconds() >= 10 ? now.getUTCSeconds() : "0" + now.getUTCSeconds()
-const reqTime = hours + ":" + minutes + ":" + seconds
-await getTaskValue(reqTime)
+await gatherWasherData(100)
 await endTask()
+
+csvGeneratedArea.value = washerDataToCsv(nodeData)
+csvFetchedArea.value = await fetchVerificationCsv()
+
+if (csvGeneratedArea.value === csvFetchedArea.value) {
+    csvMatchText.textContent = "CSV data matches"
+} else {
+    csvMatchText.textContent = "CSV data does not match"
+}
