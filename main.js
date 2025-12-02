@@ -25,6 +25,9 @@ const TOKEN_BLANK = {
     expires: 0
 }
 
+let token = TOKEN_BLANK
+let isTaskStarted = false
+
 async function fetchToken() {
     try {
         // https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch
@@ -60,8 +63,6 @@ async function fetchToken() {
     }
 }
 
-let token = TOKEN_BLANK
-
 // https://stackoverflow.com/questions/951021/what-is-the-javascript-version-of-sleep
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms))
@@ -94,18 +95,66 @@ async function startTask() {
         console.error("Failed to start task: " + response.status)
     } else {
         console.log("Successfully started task: " + response.status)
+        isTaskStarted = true
     }
 }
 
 async function endTask() {
+    if (!isTaskStarted) {return}
+
     const response = await postTo(TASK_URL, "command=end")
 
     if (!response.ok) {
         console.error("Failed to end task: " + response.status)
     } else {
         console.log("Successfully ended task: " + response.status)
+        isTaskStarted = false
     }
 }
 
+async function getTaskValue(reqTime) {
+    if (!isTaskStarted) {return}
+
+    console.log("command=getvalue,request=" + reqTime)
+    const response = await postTo(TASK_URL, "command=getvalue,request=" + reqTime)
+
+    return await response.json()
+}
+
+function isWasherDataValid(data) {
+    // has top level data key
+    if (!("data" in data)) {
+        return false
+    }
+
+    data = data["data"]
+
+    // has the node, type, name, temp keys
+    const keys = ["node","type","name","temp"]
+    for (const key in keys) {
+        if (!(key in data)) {
+            return false
+        }
+    }
+
+    // type should not be "unknown"
+    if (data["type"] === "unknown") {
+        return false
+    }
+
+    // temp should be between [0;200)
+    if (data["temp"] < 0 || data["temp"] >= 200) {
+        return false
+    }
+
+    return true
+}
+
 await startTask()
+const now = new Date()
+const hours = now.getUTCHours() >= 10 ? now.getUTCHours() : "0" + now.getUTCHours()
+const minutes = now.getUTCMinutes() >= 10 ? now.getUTCMinutes() : "0" + now.getUTCMinutes()
+const seconds = now.getUTCSeconds() >= 10 ? now.getUTCSeconds() : "0" + now.getUTCSeconds()
+const reqTime = hours + ":" + minutes + ":" + seconds
+await getTaskValue(reqTime)
 await endTask()
