@@ -30,6 +30,9 @@ let isTaskStarted = false
 
 const nodeData = []
 const nodeReceivedCount = {}
+const READINGS_REQUIRED = 5
+const TEMP_MIN = 0
+const TEMP_MAX = 200
 
 const statusText = document.getElementById("status")
 const csvMatchText = document.getElementById("csvMatch")
@@ -157,7 +160,7 @@ function isWasherDataValid(data) {
     }
 
     // temp should be between [0;200)
-    if (data["temp"] < 0 || data["temp"] >= 200) {
+    if (data["temp"] < TEMP_MIN || data["temp"] >= TEMP_MAX) {
         console.debug("Temp is invalid")
         return false
     }
@@ -165,12 +168,13 @@ function isWasherDataValid(data) {
     return true
 }
 
-async function gatherWasherData(uptoCount = 100) {
+async function gatherWasherData(uptoCount = READINGS_REQUIRED) {
     if (!isTaskStarted) {return}
     let keepGathering = true
     const readingTimeout = 1000
 
     while (keepGathering) {
+        // get current time in HH:mm:ss format, padding with 0 if required
         const now = new Date()
         const hours = now.getUTCHours() >= 10 ? now.getUTCHours() : "0" + now.getUTCHours()
         const minutes = now.getUTCMinutes() >= 10 ? now.getUTCMinutes() : "0" + now.getUTCMinutes()
@@ -274,20 +278,223 @@ function downloadAsFile(data, filename, linkText) {
     link.innerText = linkText
 }
 
-await startTask()
-await gatherWasherData(10)
-await endTask()
+// await startTask()
+// await gatherWasherData()
+// await endTask()
+//
+// const generatedCsv = washerDataToCsv(nodeData)
+// const verificationCsv = await fetchVerificationCsv()
+// csvGeneratedArea.value = generatedCsv
+// csvFetchedArea.value = verificationCsv
+//
+// if (generatedCsv === verificationCsv) {
+//     csvMatchText.textContent = "CSV data matches"
+// } else {
+//     csvMatchText.textContent = "CSV data does not match"
+// }
+//
+// downloadAsFile(generatedCsv, "readingdata_generated.csv", "Download generated CSV")
+// downloadAsFile(verificationCsv, "readingdata_fetched.csv", "Download fetched CSV")
 
-const generatedCsv = washerDataToCsv(nodeData)
-const verificationCsv = await fetchVerificationCsv()
-csvGeneratedArea.value = generatedCsv
-csvFetchedArea.value = verificationCsv
+// find the node with the 100 readings and plot that
+let targetNode
+for (const node in nodeReceivedCount) {
+    if (nodeReceivedCount[node] >= READINGS_REQUIRED) {
+        targetNode = node
+        break
+    }
+}
+createTemperatureChart(1)
 
-if (generatedCsv === verificationCsv) {
-    csvMatchText.textContent = "CSV data matches"
-} else {
-    csvMatchText.textContent = "CSV data does not match"
+// chart the temperature graph using Hermite Cubic interpolation with a factor of 10
+
+// given the separate temperature data points, put them on a time and temperature axis grid and make a graph through
+// every point. individual lines between points use hermite cubic interpolation
+// factor of 10 = 10 lines between each real data point?
+// 1. add 9 interpolated points, 2. draw straight lines between each point
+// https://paulbourke.net/miscellaneous/interpolation/
+// change mu in steps of 0.1 up to 0.9 = 9 interpolated points
+// for first y1, since there is no y0, use y0 = y1
+// same thing for the last point, but y4 = y3
+
+function xy(x, y) {
+    return {x: x, y: y}
 }
 
-downloadAsFile(generatedCsv, "readingdata_generated.csv", "Download generated CSV")
-downloadAsFile(verificationCsv, "readingdata_fetched.csv", "Download fetched CSV")
+function createTemperatureChart(node) {
+    // https://www.w3schools.com/graphics/canvas_intro.asp
+
+    const C_WIDTH = 1300
+    const C_HEIGHT = 650
+    const MARGIN = 70
+
+    const canvas = document.createElement("canvas")
+    const ctx = canvas.getContext("2d")
+
+    canvas.width = C_WIDTH
+    canvas.height = C_HEIGHT
+    canvas.style = "border:1px solid #000000;"
+
+    // title, middle of the canvas a little from the top
+    ctx.textBaseline = "middle"
+    drawText(ctx,
+        `Temperature of node ${node}, °F`,
+        "24px sans-serif",
+        xy(C_WIDTH / 2, 24)
+    )
+
+    // axes
+    const Y_TOP = MARGIN
+    const Y_BOTTOM = C_HEIGHT-MARGIN
+    const X_LEFT = MARGIN
+    const X_RIGHT = C_WIDTH-MARGIN
+    const AXIS_WIDTH = 4
+    // y [0;200)
+    drawLine(ctx,
+        xy(X_LEFT, Y_TOP),
+        xy(X_LEFT, Y_BOTTOM),
+        AXIS_WIDTH
+    )
+    // x depends on the times and reading count
+    drawLine(ctx,
+        xy(X_LEFT, Y_BOTTOM),
+        xy(X_RIGHT, Y_BOTTOM),
+        AXIS_WIDTH
+    )
+
+    // reusing reading data instead of parsing the csv
+    //const data = nodeData.filter(reading => reading["data"]["node"] == targetNode)
+
+    const data = [
+        {
+            "data": {
+                "node": 137,
+                "type": "dryer",
+                "name": "dryer_137",
+                "temp": 93
+            },
+            "time": "11:55:03"
+        },
+        {
+            "data": {
+                "node": 137,
+                "type": "dryer",
+                "name": "dryer_137",
+                "temp": 93
+            },
+            "time": "11:55:05"
+        },
+        {
+            "data": {
+                "node": 137,
+                "type": "dryer",
+                "name": "dryer_137",
+                "temp": 99
+            },
+            "time": "11:55:07"
+        },
+        {
+            "data": {
+                "node": 137,
+                "type": "dryer",
+                "name": "dryer_137",
+                "temp": 105
+            },
+            "time": "11:55:08"
+        },
+        {
+            "data": {
+                "node": 137,
+                "type": "dryer",
+                "name": "dryer_137",
+                "temp": 104
+            },
+            "time": "11:55:09"
+        }
+    ]
+
+    console.debug(`Plotting temp data of node ${targetNode}:`)
+    console.debug(data)
+
+    // axis ticks and labels
+    const LABEL_FONT = "10px sans-serif"
+    const TICK_LENGTH = 10
+
+    // y axis
+    const Y_TICK_COUNT = 10
+    const Y_ABS_TOTAL = Math.abs(TEMP_MAX) + Math.abs(TEMP_MIN)
+
+    // one Y tick every 200/10 = 20 degrees
+    const Y_TICK = Y_ABS_TOTAL / Y_TICK_COUNT
+    const Y_TICK_SPACING_PX = (Y_BOTTOM - Y_TOP) / Y_TICK_COUNT
+
+    for (let i = 0; i <= Y_TICK_COUNT; i++) {
+        const tickXY = xy(X_LEFT, Y_BOTTOM - Y_TICK_SPACING_PX * i)
+
+        // tick
+        drawLine(ctx,
+            xy(tickXY.x - TICK_LENGTH/2, tickXY.y),
+            xy(tickXY.x + TICK_LENGTH/2, tickXY.y),
+            AXIS_WIDTH
+        )
+
+        // label
+        drawText(ctx,
+            `${TEMP_MIN + Y_TICK * i}`,
+            LABEL_FONT,
+            xy(tickXY.x - TICK_LENGTH, tickXY.y),
+            0,
+            "right"
+        )
+    }
+
+    // x axis
+    const X_TICK_COUNT = data.length
+    const X_TICK_SPACING_PX = (X_RIGHT - X_LEFT) / (X_TICK_COUNT + 1)
+
+    // leave a 1 tick gap from the y axis
+    for (let i = 1; i <= X_TICK_COUNT; i++) {
+        const tickXY = xy(X_LEFT + X_TICK_SPACING_PX * i, Y_BOTTOM)
+
+        // tick
+        drawLine(ctx,
+            xy(tickXY.x, tickXY.y - TICK_LENGTH/2),
+            xy(tickXY.x, tickXY.y + TICK_LENGTH/2),
+            AXIS_WIDTH
+        )
+
+        // label
+        drawText(ctx,
+            data[i-1]["time"],
+            LABEL_FONT,
+            xy(tickXY.x, tickXY.y + TICK_LENGTH),
+            -70,
+            "right"
+        )
+    }
+
+    // add to dom
+    const container = document.createElement("div")
+    container.appendChild(canvas)
+    document.body.appendChild(container)
+}
+
+// start and end assume xy() is used
+function drawLine(ctx, startXY, endXY, lineWidth = 1) {
+    ctx.beginPath()
+    ctx.moveTo(startXY.x, startXY.y)
+    ctx.lineTo(endXY.x, endXY.y)
+    ctx.lineWidth = lineWidth
+    ctx.stroke()
+}
+
+function drawText(ctx, text, font, whereXY, angle = 0, align = "center") {
+    // https://stackoverflow.com/questions/3167928/drawing-rotated-text-on-a-html5-canvas
+    ctx.save();
+    ctx.translate(whereXY.x, whereXY.y)
+    ctx.rotate(angle * (Math.PI / 180));
+    ctx.textAlign = align
+    ctx.font = font
+    ctx.fillText(text, 0, 0)
+    ctx.restore();
+}
