@@ -364,14 +364,15 @@ function createTemperatureChart(node) {
 
     // reusing reading data instead of parsing the csv
     const data = nodeData.filter(reading => reading["data"]["node"] == targetNode)
+
     console.debug(`Plotting temp data of node ${targetNode}:`)
     console.debug(data)
 
     // axis ticks and labels
-    const LABEL_FONT = "10px sans-serif"
+    const LABEL_FONT = "16px sans-serif"
     const TICK_LENGTH = 10
 
-    // y axis
+    // Y axis
     const Y_TICK_COUNT = 10
     const Y_ABS_TOTAL = Math.abs(TEMP_MAX) + Math.abs(TEMP_MIN)
 
@@ -399,13 +400,21 @@ function createTemperatureChart(node) {
         )
     }
 
-    // x axis
-    const X_TICK_COUNT = data.length
-    const X_TICK_SPACING_PX = (X_RIGHT - X_LEFT) / (X_TICK_COUNT + 1)
+    // X axis
+    // determine tick count and spacing based on the time
+    const TIME_START = data[0]["time"]
+    const TIME_END = data[data.length-1]["time"]
 
-    // leave a 1 tick gap from the y axis
-    for (let i = 1; i <= X_TICK_COUNT; i++) {
-        const tickXY = xy(X_LEFT + X_TICK_SPACING_PX * i, Y_BOTTOM)
+    // calculate seconds between the first and last reading
+    const X_UNIT_COUNT = secondsBetween(TIME_START, TIME_END)
+    const X_UNIT_SPACING_PX = (X_RIGHT - X_LEFT) / (X_UNIT_COUNT + 1)
+    // seconds between each tick
+    const X_TICK_SPACING_UNITS = 3
+
+    // leave a 1 tick gap from the Y axis
+    for (let i = 1; i <= X_UNIT_COUNT; i += X_TICK_SPACING_UNITS) {
+
+        const tickXY = xy(X_LEFT + X_UNIT_SPACING_PX * i, Y_BOTTOM)
 
         // tick
         drawLine(ctx,
@@ -414,9 +423,10 @@ function createTemperatureChart(node) {
             AXIS_WIDTH
         )
 
+        const label = addSeconds(TIME_START, i-1)
         // label
         drawText(ctx,
-            data[i-1]["time"],
+            label,
             LABEL_FONT,
             xy(tickXY.x, tickXY.y + TICK_LENGTH),
             -70,
@@ -431,7 +441,10 @@ function createTemperatureChart(node) {
         const temp = reading["data"]["temp"]
         // 0 to 1, where on the Y axis would the point be above the X axis
         const yRatio = 1-temp/Y_ABS_TOTAL
-        const pointXY = xy(X_LEFT + X_TICK_SPACING_PX * (idx+1), Y_TOP + yRatio * (Y_BOTTOM - Y_TOP))
+
+        const x = X_LEFT + X_UNIT_SPACING_PX * (secondsBetween(TIME_START, reading["time"]) + 1)
+        const y = Y_TOP + yRatio * (Y_BOTTOM - Y_TOP)
+        const pointXY = xy(x, y)
 
         drawPoint(ctx,
             pointXY
@@ -548,4 +561,59 @@ function hermiteInterpolate(y0,y1,y2,y3,mu,tension=0,bias=0) {
     a3 = -2*mu3 + 3*mu2;
 
     return (a0*y1+a1*m0+a2*m1+a3*y2)
+}
+
+// HH:mm:ss -> {hours, minutes, seconds}
+function parseTimeFromString(timeString) {
+    const parts = timeString.split(":")
+    return {
+        hours: parseInt(parts[0], 10),
+        minutes: parseInt(parts[1], 10),
+        seconds: parseInt(parts[2], 10)
+    }
+}
+
+function parseTimeToString(t) {
+    const hours = t.hours >= 10 ? t.hours : "0" + t.hours
+    const minutes = t.minutes >= 10 ? t.minutes : "0" + t.minutes
+    const seconds = t.seconds >= 10 ? t.seconds : "0" + t.seconds
+    return `${hours}:${minutes}:${seconds}`
+}
+
+function secondsBetween(timeStart, timeEnd) {
+    // to handle looping into next day (end > start)
+    // 24hrs - start + end, in seconds
+
+    // parse into parts
+    timeStart = parseTimeFromString(timeStart)
+    timeEnd = parseTimeFromString(timeEnd)
+
+    // convert to seconds
+    timeStart = timeStart.hours*60*60 + timeStart.minutes*60 + timeStart.seconds;
+    timeEnd = timeEnd.hours*60*60 + timeEnd.minutes*60 + timeEnd.seconds;
+
+    if (timeEnd < timeStart) {
+        return 24*60*60 - timeStart + timeEnd
+    } else {
+        return timeEnd - timeStart
+    }
+}
+
+function addSeconds(timeString, seconds) {
+    const t = parseTimeFromString(timeString);
+
+    let totalSeconds =
+        t.hours * 60*60 +
+        t.minutes * 60 +
+        t.seconds +
+        seconds
+
+    // wrap at 24 hours
+    totalSeconds %= 24*60*60
+
+    t.hours = Math.floor(totalSeconds / (60*60))
+    t.minutes = Math.floor((totalSeconds % (60*60)) / 60)
+    t.seconds = totalSeconds % 60
+
+    return parseTimeToString(t);
 }
