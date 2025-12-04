@@ -30,7 +30,7 @@ let isTaskStarted = false
 
 const nodeData = []
 const nodeReceivedCount = {}
-const READINGS_REQUIRED = 10
+const READINGS_REQUIRED = 100
 const TEMP_MIN = 0
 const TEMP_MAX = 200
 
@@ -324,8 +324,8 @@ function xy(x, y) {
 function createTemperatureChart(node) {
     // https://www.w3schools.com/graphics/canvas_intro.asp
 
-    const C_WIDTH = 1300
-    const C_HEIGHT = 650
+    const C_WIDTH = 2000
+    const C_HEIGHT = 2000
     const MARGIN = 70
 
     const canvas = document.createElement("canvas")
@@ -364,7 +364,6 @@ function createTemperatureChart(node) {
 
     // reusing reading data instead of parsing the csv
     const data = nodeData.filter(reading => reading["data"]["node"] == targetNode)
-
     console.debug(`Plotting temp data of node ${targetNode}:`)
     console.debug(data)
 
@@ -440,11 +439,54 @@ function createTemperatureChart(node) {
         dataPointXY.push(pointXY)
     }
 
+    // contains interpolated points after all but the last point in dataPointXY
+    // also contains the main data points themselves to make drawing easier
+    const interpolatedPointXY = []
+    const FACTOR = 10
+
+    // interpolate the additional points using Hermite Cubic interpolation with a factor of 10
+    for (const [idx, point] of dataPointXY.entries()) {
+        // do not interpolate past the last point
+        if (idx === dataPointXY.length - 1) {
+            interpolatedPointXY.push(point)
+            break
+        }
+
+        let y1 = point.y
+        let x1 = point.x
+        let y2 = dataPointXY[idx+1].y
+        let x2 = dataPointXY[idx+1].x
+        let y0,y3
+
+        interpolatedPointXY.push(point)
+
+        // handle first and last-1 point separately
+        if (idx === 0) {
+            y0 = point.y
+            y3 = dataPointXY[idx+2].y
+        } else if (idx === dataPointXY.length - 2) {
+            y0 = dataPointXY[idx-1].y
+            y3 = point.y
+        } else {
+            // all other intermediate points
+            y0 = dataPointXY[idx-1].y
+            y3 = dataPointXY[idx+2].y
+        }
+
+        for (let j = 1; j < FACTOR; j++) {
+            const mu = 1/FACTOR * j
+            interpolatedPointXY.push(xy(
+                x1 + mu * (x2-x1),
+                hermiteInterpolate(y0,y1,y2,y3,mu)
+            ))
+        }
+    }
+
     // connect the points
-    for (let i = 0; i < dataPointXY.length - 1; i++) {
+    for (let i = 0; i < interpolatedPointXY.length - 1; i++) {
         drawLine(ctx,
-            dataPointXY[i],
-            dataPointXY[i+1]
+            interpolatedPointXY[i],
+            interpolatedPointXY[i+1]
         )
     }
 
@@ -479,4 +521,31 @@ function drawPoint(ctx, centerXY, diameter = 3) {
     ctx.arc(centerXY.x,centerXY.y,diameter/2,0,2*Math.PI)
     ctx.fill()
     ctx.stroke()
+}
+
+// https://paulbourke.net/miscellaneous/interpolation/
+// y0 - prev point before y1
+// y1, y2 - the space between 2 data points
+// y3 - next point after y2
+// mu - 0 to 1, ratio determining where in the space between y1 and y2 the value is being interpolated
+// "Tension can be used to tighten up the curvature at the known points. The bias is used to twist the curve about the known points."
+// Result - new interpolated y value at mu
+function hermiteInterpolate(y0,y1,y2,y3,mu,tension=0,bias=0) {
+    let m0, m1, mu2, mu3;
+    let a0, a1, a2, a3;
+
+    mu2 = mu*mu
+    mu3 = mu2*mu
+
+    m0 =  (y1-y0)*(1+bias)*(1-tension)/2
+    m0 += (y2-y1)*(1-bias)*(1-tension)/2
+    m1 =  (y2-y1)*(1+bias)*(1-tension)/2
+    m1 += (y3-y2)*(1-bias)*(1-tension)/2
+
+    a0 =  2*mu3 - 3*mu2 + 1;
+    a1 =    mu3 - 2*mu2 + mu;
+    a2 =    mu3 -   mu2;
+    a3 = -2*mu3 + 3*mu2;
+
+    return (a0*y1+a1*m0+a2*m1+a3*y2)
 }
