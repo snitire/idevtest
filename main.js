@@ -30,7 +30,7 @@ let isTaskStarted = false
 
 const nodeData = []
 const nodeReceivedCount = {}
-const READINGS_REQUIRED = 5
+const READINGS_REQUIRED = 10
 const TEMP_MIN = 0
 const TEMP_MAX = 200
 
@@ -278,23 +278,23 @@ function downloadAsFile(data, filename, linkText) {
     link.innerText = linkText
 }
 
-// await startTask()
-// await gatherWasherData()
-// await endTask()
-//
-// const generatedCsv = washerDataToCsv(nodeData)
-// const verificationCsv = await fetchVerificationCsv()
-// csvGeneratedArea.value = generatedCsv
-// csvFetchedArea.value = verificationCsv
-//
-// if (generatedCsv === verificationCsv) {
-//     csvMatchText.textContent = "CSV data matches"
-// } else {
-//     csvMatchText.textContent = "CSV data does not match"
-// }
-//
-// downloadAsFile(generatedCsv, "readingdata_generated.csv", "Download generated CSV")
-// downloadAsFile(verificationCsv, "readingdata_fetched.csv", "Download fetched CSV")
+await startTask()
+await gatherWasherData()
+await endTask()
+
+const generatedCsv = washerDataToCsv(nodeData)
+const verificationCsv = await fetchVerificationCsv()
+csvGeneratedArea.value = generatedCsv
+csvFetchedArea.value = verificationCsv
+
+if (generatedCsv === verificationCsv) {
+    csvMatchText.textContent = "CSV data matches"
+} else {
+    csvMatchText.textContent = "CSV data does not match"
+}
+
+downloadAsFile(generatedCsv, "readingdata_generated.csv", "Download generated CSV")
+downloadAsFile(verificationCsv, "readingdata_fetched.csv", "Download fetched CSV")
 
 // find the node with the 100 readings and plot that
 let targetNode
@@ -304,7 +304,7 @@ for (const node in nodeReceivedCount) {
         break
     }
 }
-createTemperatureChart(1)
+createTemperatureChart(targetNode)
 
 // chart the temperature graph using Hermite Cubic interpolation with a factor of 10
 
@@ -363,55 +363,7 @@ function createTemperatureChart(node) {
     )
 
     // reusing reading data instead of parsing the csv
-    //const data = nodeData.filter(reading => reading["data"]["node"] == targetNode)
-
-    const data = [
-        {
-            "data": {
-                "node": 137,
-                "type": "dryer",
-                "name": "dryer_137",
-                "temp": 93
-            },
-            "time": "11:55:03"
-        },
-        {
-            "data": {
-                "node": 137,
-                "type": "dryer",
-                "name": "dryer_137",
-                "temp": 93
-            },
-            "time": "11:55:05"
-        },
-        {
-            "data": {
-                "node": 137,
-                "type": "dryer",
-                "name": "dryer_137",
-                "temp": 99
-            },
-            "time": "11:55:07"
-        },
-        {
-            "data": {
-                "node": 137,
-                "type": "dryer",
-                "name": "dryer_137",
-                "temp": 105
-            },
-            "time": "11:55:08"
-        },
-        {
-            "data": {
-                "node": 137,
-                "type": "dryer",
-                "name": "dryer_137",
-                "temp": 104
-            },
-            "time": "11:55:09"
-        }
-    ]
+    const data = nodeData.filter(reading => reading["data"]["node"] == targetNode)
 
     console.debug(`Plotting temp data of node ${targetNode}:`)
     console.debug(data)
@@ -473,6 +425,29 @@ function createTemperatureChart(node) {
         )
     }
 
+    const dataPointXY = []
+
+    // draw the base data points
+    for (const [idx, reading] of data.entries()) {
+        const temp = reading["data"]["temp"]
+        // 0 to 1, where on the Y axis would the point be above the X axis
+        const yRatio = 1-temp/Y_ABS_TOTAL
+        const pointXY = xy(X_LEFT + X_TICK_SPACING_PX * (idx+1), Y_TOP + yRatio * (Y_BOTTOM - Y_TOP))
+
+        drawPoint(ctx,
+            pointXY
+        )
+        dataPointXY.push(pointXY)
+    }
+
+    // connect the points
+    for (let i = 0; i < dataPointXY.length - 1; i++) {
+        drawLine(ctx,
+            dataPointXY[i],
+            dataPointXY[i+1]
+        )
+    }
+
     // add to dom
     const container = document.createElement("div")
     container.appendChild(canvas)
@@ -497,4 +472,11 @@ function drawText(ctx, text, font, whereXY, angle = 0, align = "center") {
     ctx.font = font
     ctx.fillText(text, 0, 0)
     ctx.restore();
+}
+
+function drawPoint(ctx, centerXY, diameter = 3) {
+    ctx.beginPath()
+    ctx.arc(centerXY.x,centerXY.y,diameter/2,0,2*Math.PI)
+    ctx.fill()
+    ctx.stroke()
 }
